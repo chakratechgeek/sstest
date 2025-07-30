@@ -1,10 +1,12 @@
-terraform {
-  backend "s3" {
-    bucket         = "statefile_uniq"  # Your bucket name
-    key            = "terraform-state/dev/terraform.tfstate"  # Any unique path/key per environment/module
-    region         = "ap-southeast-2"
-    encrypt        = true
-    # Optional: Enable state locking (recommended in production)
-    # dynamodb_table = "my-tf-lock-table"
+provider "aws" {
+  region = "ap-southeast-2"
+}
+
+resource "aws_s3_bucket" "my_bucket" {
+  bucket = "statefile"   # Bucket name must be globally unique (change if "statefile" is taken)
+  acl    = "private"
+  tags = {
+    Name        = "MyBucket"
+    Environment = "Dev"
   }
 }
