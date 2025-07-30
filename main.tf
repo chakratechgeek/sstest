@@ -1,13 +1,10 @@
-provider "aws" {
-  region = "ap-southeast-2"   # Change to your preferred region
-}
-
-resource "aws_s3_bucket" "my_bucket" {
-  bucket = "my-unique-bucket-name-20250729-chaks"  # Bucket name must be globally unique
-  acl    = "private"
-
-  tags = {
-    Name        = "MyBucket"
-    Environment = "Dev"
+terraform {
+  backend "s3" {
+    bucket         = "statefile_uniq"  # Your bucket name
+    key            = "terraform-state/dev/terraform.tfstate"  # Any unique path/key per environment/module
+    region         = "ap-southeast-2"
+    encrypt        = true
+    # Optional: Enable state locking (recommended in production)
+    # dynamodb_table = "my-tf-lock-table"
   }
 }
