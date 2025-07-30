@@ -3,7 +3,7 @@ provider "aws" {
 }
 
 resource "aws_s3_bucket" "backend_bucket" {
-  bucket = "resource1-30072026"  # MUST be globally unique!
+  bucket = "resource1-30072027"  # MUST be globally unique!
   acl    = "private"
   tags = {
     Name        = "SeparateStateBucket"
