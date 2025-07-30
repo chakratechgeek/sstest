@@ -2,11 +2,11 @@ provider "aws" {
   region = "ap-southeast-2"
 }
 
-resource "aws_s3_bucket" "my_bucket" {
-  bucket = "statefile-chaks"   # Bucket name must be globally unique (change if "statefile" is taken)
+resource "aws_s3_bucket" "backend_bucket" {
+  bucket = "resource1-30072025"  # MUST be globally unique!
   acl    = "private"
   tags = {
-    Name        = "MyBucket"
-    Environment = "Dev"
+    Name        = "SeparateStateBucket"
+    Environment = "uat"
   }
 }
