@@ -1,0 +1,33 @@
+name: PR Verification
+
+on:
+  pull_request:
+    branches:
+      - main
+      - develop        # Add more branches as needed
+
+jobs:
+  terraform-plan:
+    name: Terraform Plan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init
+        run: terraform init
+        working-directory: infra  # Adjust to your terraform folder
+
+      - name: Terraform Validate
+        run: terraform validate
+        working-directory: infra
+
+      - name: Terraform Plan
+        run: terraform plan
+        working-directory: infra
+
+  # Add more jobs (lint, tests, etc.) as needed
