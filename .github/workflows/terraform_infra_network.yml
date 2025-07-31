@@ -1,4 +1,4 @@
-name: 'Terraform Deploy to AWS INFRA'
+name: 'Terraform Deploy to AWS NETWORK'
 
 on:
   push:
