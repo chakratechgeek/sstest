@@ -20,29 +20,32 @@ jobs:
         id: changed-dirs
         run: |
           git fetch origin ${{ github.base_ref }}
-          dirs=$(git diff --name-only origin/${{ github.base_ref }} ${{ github.sha }} | \
-            awk -F/ '{print $1}' | sort | uniq)
-          echo "$dirs" > changed_dirs.txt
+          git diff --name-only origin/${{ github.base_ref }} ${{ github.sha }} \
+            | awk -F/ '{print $1}' | sort -u > changed_dirs.txt
 
       - name: Filter Terraform directories
         id: set-tf-dirs
         run: |
           tf_dirs=()
           while IFS= read -r dir; do
-            # Skip blank lines
-            [[ -z "$dir" ]] && continue
-            # Check for .tf files in the directory
+            # Trim whitespace
+            dir=$(echo "$dir" | xargs)
+            [ -z "$dir" ] && continue
+            # Only include if .tf files exist
             if find "$dir" -maxdepth 1 -name '*.tf' | grep -q .; then
               tf_dirs+=("$dir")
             fi
           done < changed_dirs.txt
-          # Output as JSON array for matrix usage
-          if [ "${#tf_dirs[@]}" -eq 0 ]; then
+
+          # Build a compact JSON array
+          if [ ${#tf_dirs[@]} -eq 0 ]; then
             tf_dirs_json='[]'
           else
-            tf_dirs_json=$(printf '%s\n' "${tf_dirs[@]}" | jq -R . | jq -s .)
+            tf_dirs_json=$(jq -c -n '$ARGS.positional' --args "${tf_dirs[@]}")
           fi
-          echo "tf_dirs=$tf_dirs_json" >> $GITHUB_OUTPUT
+
+          # Export for matrix usage
+          echo "tf_dirs=$tf_dirs_json" >> "$GITHUB_OUTPUT"
 
   terraform-plan:
     name: Terraform Plan
