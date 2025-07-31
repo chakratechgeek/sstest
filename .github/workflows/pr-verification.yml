@@ -8,7 +8,7 @@ on:
       - develop
 
 jobs:
-  call-central-pr-verification:
+  pr-verification:
+    name: PR Verification
     uses: chakratechgeek/centralspendshield/.github/workflows/pr-verification.yml@main
-    with: {}           # no inputs in this example
-    secrets: inherit   # so your AWS_* secrets (etc.) flow through
+    secrets: inherit
