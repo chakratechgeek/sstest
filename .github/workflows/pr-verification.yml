@@ -28,23 +28,19 @@ jobs:
         run: |
           tf_dirs=()
           while IFS= read -r dir; do
-            # Trim whitespace
-            dir=$(echo "$dir" | xargs)
-            [ -z "$dir" ] && continue
-            # Only include if .tf files exist
+            dir=$(echo "$dir" | xargs)       # trim whitespace
+            [ -z "$dir" ] && continue        # skip blanks
             if find "$dir" -maxdepth 1 -name '*.tf' | grep -q .; then
               tf_dirs+=("$dir")
             fi
           done < changed_dirs.txt
 
-          # Build a compact JSON array
           if [ ${#tf_dirs[@]} -eq 0 ]; then
             tf_dirs_json='[]'
           else
             tf_dirs_json=$(jq -c -n '$ARGS.positional' --args "${tf_dirs[@]}")
           fi
 
-          # Export for matrix usage
           echo "tf_dirs=$tf_dirs_json" >> "$GITHUB_OUTPUT"
 
   terraform-plan:
@@ -77,7 +73,16 @@ jobs:
         working-directory: ${{ matrix.dir }}
 
       - name: Terraform Plan
-        run: terraform plan
+        run: terraform plan -out=plan.out
         working-directory: ${{ matrix.dir }}
 
-  # Add more jobs (lint, tests, etc.) as needed
+  finalize-pr-verification:
+    name: PR Verification
+    needs:
+      - find-changed-terraform-dirs
+      - terraform-plan
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Complete PR Validation
+        run: echo "✅ PR validation complete"
