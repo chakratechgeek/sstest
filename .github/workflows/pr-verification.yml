@@ -29,11 +29,19 @@ jobs:
         run: |
           tf_dirs=()
           while IFS= read -r dir; do
+            # Skip blank lines
+            [[ -z "$dir" ]] && continue
+            # Check for .tf files in the directory
             if find "$dir" -maxdepth 1 -name '*.tf' | grep -q .; then
               tf_dirs+=("$dir")
             fi
           done < changed_dirs.txt
-          tf_dirs_json=$(printf '%s\n' "${tf_dirs[@]}" | jq -R . | jq -s .)
+          # Output as JSON array for matrix usage
+          if [ "${#tf_dirs[@]}" -eq 0 ]; then
+            tf_dirs_json='[]'
+          else
+            tf_dirs_json=$(printf '%s\n' "${tf_dirs[@]}" | jq -R . | jq -s .)
+          fi
           echo "tf_dirs=$tf_dirs_json" >> $GITHUB_OUTPUT
 
   terraform-plan:
@@ -70,4 +78,3 @@ jobs:
         working-directory: ${{ matrix.dir }}
 
   # Add more jobs (lint, tests, etc.) as needed
-  #Added files now
