@@ -7,9 +7,52 @@ on:
       - develop        # Add more branches as needed
 
 jobs:
+  find-changed-terraform-dirs:
+    name: Find Changed Terraform Dirs
+    runs-on: ubuntu-latest
+    outputs:
+      tf_dirs: ${{ steps.set-tf-dirs.outputs.tf_dirs }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get changed directories
+        id: changed-dirs
+        run: |
+          git fetch origin ${{ github.base_ref }}
+          dirs=$(git diff --name-only origin/${{ github.base_ref }} ${{ github.sha }} | \
+            awk -F/ '{print $1}' | sort | uniq)
+          echo "$dirs" > changed_dirs.txt
+
+      - name: Filter Terraform directories
+        id: set-tf-dirs
+        run: |
+          tf_dirs=()
+          while IFS= read -r dir; do
+            # Skip blank lines
+            [[ -z "$dir" ]] && continue
+            # Check for .tf files in the directory
+            if find "$dir" -maxdepth 1 -name '*.tf' | grep -q .; then
+              tf_dirs+=("$dir")
+            fi
+          done < changed_dirs.txt
+          # Output as JSON array for matrix usage
+          if [ "${#tf_dirs[@]}" -eq 0 ]; then
+            tf_dirs_json='[]'
+          else
+            tf_dirs_json=$(printf '%s\n' "${tf_dirs[@]}" | jq -R . | jq -s .)
+          fi
+          echo "tf_dirs=$tf_dirs_json" >> $GITHUB_OUTPUT
+
   terraform-plan:
     name: Terraform Plan
+    needs: find-changed-terraform-dirs
+    if: needs.find-changed-terraform-dirs.outputs.tf_dirs != '[]'
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        dir: ${{ fromJson(needs.find-changed-terraform-dirs.outputs.tf_dirs) }}
+
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -24,14 +67,14 @@ jobs:
 
       - name: Terraform Init
         run: terraform init
-        working-directory: infra  # Adjust to your terraform folder
+        working-directory: ${{ matrix.dir }}
 
       - name: Terraform Validate
         run: terraform validate
-        working-directory: infra
+        working-directory: ${{ matrix.dir }}
 
       - name: Terraform Plan
         run: terraform plan
-        working-directory: infra
+        working-directory: ${{ matrix.dir }}
 
   # Add more jobs (lint, tests, etc.) as needed
