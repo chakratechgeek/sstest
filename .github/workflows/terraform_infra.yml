@@ -4,9 +4,7 @@ on:
   push:
     branches: [ main ]
     paths: [ '**.tf' ]       # Runs only when .tf files change
-  pull_request:
-    branches: [ main ]
-
+ 
 jobs:
   terraform:
     name: 'Terraform Plan and Apply'
