@@ -104,17 +104,21 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/outputs"
           # Sanitize dir name for filename
           SANITIZED_DIR="$(echo '${{ matrix.dir }}' | sed 's/[^A-Za-z0-9_.-]/_/g')"
+          # Add job index to make filename unique
+          UNIQUE_FILENAME="${SANITIZED_DIR}-job-${{ strategy.job-index }}.md"
           # Run python and capture stdout
-          python "$GITHUB_WORKSPACE/check.py" plan.json | tee "$GITHUB_WORKSPACE/outputs/${SANITIZED_DIR}.md"
+          python "$GITHUB_WORKSPACE/check.py" plan.json | tee "$GITHUB_WORKSPACE/outputs/${UNIQUE_FILENAME}"
           # Prepend a header so we know which directory the output belongs to
-          sed -i "1i ## Directory: \`${{ matrix.dir }}\`\n" "$GITHUB_WORKSPACE/outputs/${SANITIZED_DIR}.md"
+          sed -i "1i ## Directory: \`${{ matrix.dir }}\`\n" "$GITHUB_WORKSPACE/outputs/${UNIQUE_FILENAME}"
 
       - name: Upload per-dir output
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: check-outputs           # same name to aggregate across matrix jobs
+          name: check-outputs
           path: outputs/*.md
+          include-hidden-files: true
+          overwrite: true
 
   aggregate-and-comment:
     name: Aggregate outputs & comment on PR
