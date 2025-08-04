@@ -1,33 +1,104 @@
-name: PR Validation
+name: PR Validation (Changed Terraform Only)
 
 on:
   pull_request:
-    branches:
-      - main
-      - develop
+    branches: [ main, develop ]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
 
 jobs:
-  call-central:
-    permissions:
-      contents: read
-      pull-requests: write
-      issues: write
-    uses: chakratechgeek/centralspendshield/.github/workflows/pr-verification.yml@main
-    with:
-      pr_number: ${{ github.event.pull_request.number }}
-      target_repo_owner: ${{ github.repository_owner }}
-      target_repo_name: ${{ github.event.repository.name }}
-    secrets:
-      #PR_COMMENT_TOKEN: ${{ secrets.PR_COMMENT_TOKEN }}
-      PR_COMMENT_TOKEN: ${{ secrets.PR_COMMENT_TOKEN }}  # fine-grained PAT with Issues & PRs write on target repo
-      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
-
-  pr-verification-report:
-    name: PR Verification Report
-    needs: call-central
+  find-changed-terraform:
+    name: Find changed Terraform dirs
     runs-on: ubuntu-latest
-    if: always()
+    outputs:
+      tf_dirs: ${{ steps.set-dirs.outputs.tf_dirs }}
     steps:
-      - run: echo "✅ PR validation complete"
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # needed to diff base vs head
+
+      - name: Compute changed Terraform directories
+        id: set-dirs
+        shell: bash
+        run: |
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+
+          # List changed files and keep only Terraform-related ones
+          mapfile -t tf_dirs < <(
+            git diff --name-only --diff-filter=ACMR "$BASE_SHA" "$HEAD_SHA" \
+            | grep -E '(\.tf$|\.tfvars(\.json)?$|\.terraform\.lock\.hcl$)' \
+            | xargs -n1 dirname \
+            | sort -u
+          )
+
+          echo "Changed Terraform dirs:"
+          printf ' - %s\n' "${tf_dirs[@]:-<none>}"
+
+          if [ ${#tf_dirs[@]} -eq 0 ]; then
+            echo "tf_dirs=[]" >> "$GITHUB_OUTPUT"
+          else
+            # to JSON array for matrix
+            tf_dirs_json=$(jq -c -n '$ARGS.positional' --args "${tf_dirs[@]}")
+            echo "tf_dirs=$tf_dirs_json" >> "$GITHUB_OUTPUT"
+          fi
+
+  plan:
+    name: Terraform plan (changed dirs)
+    needs: find-changed-terraform
+    if: needs.find-changed-terraform.outputs.tf_dirs != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dir: ${{ fromJson(needs.find-changed-terraform.outputs.tf_dirs) }}
+    env:
+      AWS_ACCESS_KEY_ID:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION:    ${{ secrets.AWS_DEFAULT_REGION }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform init
+        working-directory: ${{ matrix.dir }}
+        run: terraform init -input=false
+
+      - name: Terraform validate
+        working-directory: ${{ matrix.dir }}
+        run: terraform validate
+
+      - name: Terraform plan
+        working-directory: ${{ matrix.dir }}
+        run: terraform plan -input=false -no-color -out=plan.out
+
+      - name: Generate plan.json
+        working-directory: ${{ matrix.dir }}
+        run: terraform show -json plan.out > plan.json
+
+      - name: Comment PR with plan result
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          token: ${{ github.token }}  # same-repo PRs
+          issue-number: ${{ github.event.pull_request.number }}
+          body: |
+            ## ✅ Terraform Plan — `${{ matrix.dir }}`
+            Plan generated successfully.
+
+            - **Directory:** `${{ matrix.dir }}`
+            - **Run:** https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+  summary:
+    name: PR Validation summary
+    needs: [find-changed-terraform, plan]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "✅ PR validation complete"
+          echo "Changed Terraform dirs: ${{ needs.find-changed-terraform.outputs.tf_dirs }}"
+          echo "Plan job result: ${{ needs.plan.result }}"
