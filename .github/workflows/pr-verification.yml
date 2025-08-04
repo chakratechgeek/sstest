@@ -17,7 +17,7 @@ jobs:
     secrets: inherit
 
   pr-verification-report:
-    name: PR Verification
+    name: PR Verification Report
     needs: call-central-pr-verification
     runs-on: ubuntu-latest
     if: always()
