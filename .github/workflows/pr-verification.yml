@@ -1,4 +1,4 @@
-name: PR Validation (Changed Terraform Only)
+name: PR Validation (Changed Terraform + Python Check Comment)
 
 on:
   pull_request:
@@ -20,6 +20,12 @@ jobs:
         with:
           fetch-depth: 0  # needed to diff base vs head
 
+      - name: Ensure jq
+        run: |
+          if ! command -v jq >/dev/null 2>&1; then
+            sudo apt-get update && sudo apt-get install -y jq
+          fi
+
       - name: Compute changed Terraform directories
         id: set-dirs
         shell: bash
@@ -27,7 +33,6 @@ jobs:
           BASE_SHA="${{ github.event.pull_request.base.sha }}"
           HEAD_SHA="${{ github.event.pull_request.head.sha }}"
 
-          # List changed files and keep only Terraform-related ones
           mapfile -t tf_dirs < <(
             git diff --name-only --diff-filter=ACMR "$BASE_SHA" "$HEAD_SHA" \
             | grep -E '(\.tf$|\.tfvars(\.json)?$|\.terraform\.lock\.hcl$)' \
@@ -41,13 +46,12 @@ jobs:
           if [ ${#tf_dirs[@]} -eq 0 ]; then
             echo "tf_dirs=[]" >> "$GITHUB_OUTPUT"
           else
-            # to JSON array for matrix
             tf_dirs_json=$(jq -c -n '$ARGS.positional' --args "${tf_dirs[@]}")
             echo "tf_dirs=$tf_dirs_json" >> "$GITHUB_OUTPUT"
           fi
 
-  plan:
-    name: Terraform plan (changed dirs)
+  plan-and-comment:
+    name: Terraform plan & comment Python output
     needs: find-changed-terraform
     if: needs.find-changed-terraform.outputs.tf_dirs != '[]'
     runs-on: ubuntu-latest
@@ -63,6 +67,17 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: hashicorp/setup-terraform@v3
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: (Optional) Install Python deps
+        shell: bash
+        run: |
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          fi
 
       - name: Terraform init
         working-directory: ${{ matrix.dir }}
@@ -80,25 +95,37 @@ jobs:
         working-directory: ${{ matrix.dir }}
         run: terraform show -json plan.out > plan.json
 
-      - name: Comment PR with plan result
+      - name: Run check.py and capture output
+        id: run-check
+        working-directory: ${{ matrix.dir }}
+        run: |
+          set -e
+          python "$GITHUB_WORKSPACE/check.py" plan.json | tee check_output.txt
+
+      - name: Comment PR with Python output
         uses: peter-evans/create-or-update-comment@v4
         with:
           token: ${{ github.token }}  # same-repo PRs
           issue-number: ${{ github.event.pull_request.number }}
-          body: |
-            ## ✅ Terraform Plan — `${{ matrix.dir }}`
-            Plan generated successfully.
+          body-path: ${{ matrix.dir }}/check_output.txt
 
-            - **Directory:** `${{ matrix.dir }}`
-            - **Run:** https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      - name: Upload artifacts (plan + output)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: plan-and-check-${{ matrix.dir }}
+          path: |
+            ${{ matrix.dir }}/plan.out
+            ${{ matrix.dir }}/plan.json
+            ${{ matrix.dir }}/check_output.txt
 
   summary:
     name: PR Validation summary
-    needs: [find-changed-terraform, plan]
+    needs: [find-changed-terraform, plan-and-comment]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - run: |
           echo "✅ PR validation complete"
           echo "Changed Terraform dirs: ${{ needs.find-changed-terraform.outputs.tf_dirs }}"
-          echo "Plan job result: ${{ needs.plan.result }}"
+          echo "Plan job result: ${{ needs['plan-and-comment'].result }}"
