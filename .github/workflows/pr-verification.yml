@@ -36,7 +36,8 @@ jobs:
           mapfile -t tf_dirs < <(
             git diff --name-only --diff-filter=ACMR "$BASE_SHA" "$HEAD_SHA" \
             | grep -E '(\.tf$|\.tfvars(\.json)?$|\.terraform\.lock\.hcl$)' \
-            | xargs -n1 dirname | sort -u
+            | xargs -n1 dirname \
+            | sort -u
           )
 
           echo "Changed Terraform dirs:"
@@ -78,81 +79,54 @@ jobs:
             pip install -r requirements.txt
           fi
 
-      # Single robust step that never fails the job; it writes a markdown file with results
-      - name: Run plan + check.py and capture output (robust)
+      - name: Terraform init
+        working-directory: ${{ matrix.dir }}
+        run: terraform init -input=false
+
+      - name: Terraform validate
+        working-directory: ${{ matrix.dir }}
+        run: terraform validate
+
+      - name: Terraform plan
+        working-directory: ${{ matrix.dir }}
+        run: terraform plan -input=false -no-color -out=plan.out
+
+      - name: Generate plan.json
+        working-directory: ${{ matrix.dir }}
+        run: terraform show -json plan.out > plan.json
+
+      - name: Run check.py and capture output
         id: run-check
         working-directory: ${{ matrix.dir }}
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p "$GITHUB_WORKSPACE/outputs"
-
+          # Sanitize dir name for filename
           SANITIZED_DIR="$(echo '${{ matrix.dir }}' | sed 's/[^A-Za-z0-9_.-]/_/g')"
-          DIR_HASH="$(printf '%s' '${{ matrix.dir }}' | md5sum | cut -c1-8)"
-          OUT_FILE="$GITHUB_WORKSPACE/outputs/${SANITIZED_DIR}-${DIR_HASH}.md"
-          echo "OUT_FILE=$OUT_FILE" >> "$GITHUB_ENV"
-          echo "ART_NAME=check-output-${SANITIZED_DIR}-${DIR_HASH}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_ENV"
+          # Run python and capture stdout
+          python "$GITHUB_WORKSPACE/check.py" plan.json | tee "$GITHUB_WORKSPACE/outputs/${SANITIZED_DIR}.md"
+          # Prepend a header so we know which directory the output belongs to
+          sed -i "1i ## Directory: \`${{ matrix.dir }}\`\n" "$GITHUB_WORKSPACE/outputs/${SANITIZED_DIR}.md"
 
-          {
-            echo "### Directory: \`${{ matrix.dir }}\`"
-            echo
-
-            INIT_OK=0
-            terraform init -input=false && INIT_OK=1 || true
-            if [ $INIT_OK -eq 1 ]; then
-              echo "✅ terraform init"
-            else
-              echo "❌ terraform init failed"
-            fi
-
-            VAL_OK=0
-            terraform validate && VAL_OK=1 || true
-            if [ $VAL_OK -eq 1 ]; then
-              echo "✅ terraform validate"
-            else
-              echo "❌ terraform validate failed"
-            fi
-
-            PLAN_OK=0
-            terraform plan -input=false -no-color -out=plan.out && PLAN_OK=1 || true
-            if [ $PLAN_OK -eq 1 ]; then
-              echo "✅ terraform plan"
-              # show -> plan.json
-              if terraform show -json plan.out > plan.json 2>/dev/null; then
-                echo
-                echo "#### check.py output"
-                echo '```'
-                # Run your checker; if it fails, we still capture its stderr/stdout
-                python "$GITHUB_WORKSPACE/check.py" plan.json || true
-                echo '```'
-              else
-                echo "⚠️ terraform show failed; skipping check.py"
-              fi
-            else
-              echo "❌ terraform plan failed; skipping terraform show and check.py"
-            fi
-          } | tee "$OUT_FILE"
-
-      - name: Upload per-dir output (unique name)
+      - name: Upload per-dir output
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.ART_NAME }}   # guaranteed unique
-          path: ${{ env.OUT_FILE }}
-          if-no-files-found: error
-          retention-days: 7
+          name: check-outputs-${{ strategy.job-index }}-${{ github.run_attempt }}  # unique name per matrix job
+          path: outputs/*.md
 
   aggregate-and-comment:
     name: Aggregate outputs & comment on PR
     needs: [find-changed-terraform, plan-and-check]
-    if: always() && needs.find-changed-terraform.outputs.tf_dirs != '[]'
+    if: needs.find-changed-terraform.outputs.tf_dirs != '[]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
         with:
-          pattern: check-output-*
-          merge-multiple: true
+          pattern: check-outputs-*  # download all artifacts matching this pattern
           path: collected
+          merge-multiple: true      # merge all artifacts into one directory
 
       - name: Build combined comment
         id: build
@@ -161,7 +135,7 @@ jobs:
           echo "## Terraform Checks (Python Output)" > combined.md
           echo "" >> combined.md
           if ls collected/*.md >/dev/null 2>&1; then
-            for f in $(ls -1 collected/*.md | sort); do
+            for f in collected/*.md; do
               echo "---" >> combined.md
               cat "$f" >> combined.md
               echo "" >> combined.md
@@ -196,4 +170,4 @@ jobs:
       - run: |
           echo "✅ PR validation complete"
           echo "Changed Terraform dirs: ${{ needs.find-changed-terraform.outputs.tf_dirs }}"
-          echo "Plan job overall: ${{ needs.plan-and-check.result }}"
+          echo "Plan job result: ${{ needs.plan-and-check.result }}"
