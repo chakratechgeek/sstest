@@ -4,7 +4,7 @@ provider "aws" {
 
 resource "aws_instance" "web" {
   ami           = "ami-093dc6859d9315726" # Example: Amazon Linux 2 ARM64 in ap-southeast-2 (Sydney). Update as needed!
-  instance_type = "t4g.medium" #global all working a
+  instance_type = "t3.micro" #global all working a
 
   tags = {
     Name = "DemoEC2" #aaded comments sss
