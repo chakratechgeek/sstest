@@ -1,4 +1,4 @@
-name: PR Validation (Changed Terraform + Python Check Comment)
+name: PR Validation (Changed Terraform + Python Output Comment)
 
 on:
   pull_request:
@@ -50,8 +50,8 @@ jobs:
             echo "tf_dirs=$tf_dirs_json" >> "$GITHUB_OUTPUT"
           fi
 
-  plan-and-comment:
-    name: Terraform plan & comment Python output
+  plan-and-check:
+    name: Terraform plan & run check.py (per dir)
     needs: find-changed-terraform
     if: needs.find-changed-terraform.outputs.tf_dirs != '[]'
     runs-on: ubuntu-latest
@@ -98,34 +98,75 @@ jobs:
       - name: Run check.py and capture output
         id: run-check
         working-directory: ${{ matrix.dir }}
+        shell: bash
         run: |
-          set -e
-          python "$GITHUB_WORKSPACE/check.py" plan.json | tee check_output.txt
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/outputs"
+          # Sanitize dir name for filename
+          SANITIZED_DIR="$(echo '${{ matrix.dir }}' | sed 's/[^A-Za-z0-9_.-]/_/g')"
+          # Run python and capture stdout
+          python "$GITHUB_WORKSPACE/check.py" plan.json | tee "$GITHUB_WORKSPACE/outputs/${SANITIZED_DIR}.md"
+          # Prepend a header so we know which directory the output belongs to
+          sed -i "1i ## Directory: \`${{ matrix.dir }}\`\n" "$GITHUB_WORKSPACE/outputs/${SANITIZED_DIR}.md"
 
-      - name: Comment PR with Python output
+      - name: Upload per-dir output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: check-outputs           # same name to aggregate across matrix jobs
+          path: outputs/*.md
+
+  aggregate-and-comment:
+    name: Aggregate outputs & comment on PR
+    needs: [find-changed-terraform, plan-and-check]
+    if: needs.find-changed-terraform.outputs.tf_dirs != '[]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: check-outputs
+          path: collected
+
+      - name: Build combined comment
+        id: build
+        shell: bash
+        run: |
+          echo "## Terraform Checks (Python Output)" > combined.md
+          echo "" >> combined.md
+          if ls collected/*.md >/dev/null 2>&1; then
+            for f in collected/*.md; do
+              echo "---" >> combined.md
+              cat "$f" >> combined.md
+              echo "" >> combined.md
+            done
+          else
+            echo "_No outputs produced._" >> combined.md
+          fi
+
+      - name: Find existing comment (to update)
+        id: find-comment
+        uses: peter-evans/find-comment@v3
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          comment-author: github-actions[bot]
+          body-includes: "## Terraform Checks (Python Output)"
+
+      - name: Create or update PR comment
         uses: peter-evans/create-or-update-comment@v4
         with:
           token: ${{ github.token }}  # same-repo PRs
           issue-number: ${{ github.event.pull_request.number }}
-          body-path: ${{ matrix.dir }}/check_output.txt
-
-      - name: Upload artifacts (plan + output)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: plan-and-check-${{ matrix.dir }}
-          path: |
-            ${{ matrix.dir }}/plan.out
-            ${{ matrix.dir }}/plan.json
-            ${{ matrix.dir }}/check_output.txt
+          comment-id: ${{ steps.find-comment.outputs.comment-id }}
+          edit-mode: replace
+          body-path: combined.md
 
   summary:
     name: PR Validation summary
-    needs: [find-changed-terraform, plan-and-comment]
+    needs: [find-changed-terraform, plan-and-check, aggregate-and-comment]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - run: |
           echo "✅ PR validation complete"
           echo "Changed Terraform dirs: ${{ needs.find-changed-terraform.outputs.tf_dirs }}"
-          echo "Plan job result: ${{ needs['plan-and-comment'].result }}"
+          echo "Plan job result: ${{ needs.plan-and-check.result }}"
