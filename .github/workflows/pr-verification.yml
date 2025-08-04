@@ -11,10 +11,23 @@ jobs:
     name: Call Central PR Verification
     uses: chakratechgeek/centralspendshield/.github/workflows/pr-verification.yml@main
     secrets: inherit
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
 
   pr-verification-report:
     name: PR Verification
     needs: call-central-pr-verification
     runs-on: ubuntu-latest
+    if: always()
     steps:
-      - run: echo "✅ PR validation complete"
+      - name: Report Results
+        run: |
+          echo "Central workflow result: ${{ needs.call-central-pr-verification.result }}"
+          if [ "${{ needs.call-central-pr-verification.result }}" = "success" ]; then
+            echo "✅ PR validation complete"
+          else
+            echo "❌ PR validation failed or was cancelled"
+            exit 1
+          fi
