@@ -72,7 +72,7 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: (Optional) Install Python deps
+      - name: Install Python deps (optional)
         shell: bash
         run: |
           if [ -f requirements.txt ]; then
