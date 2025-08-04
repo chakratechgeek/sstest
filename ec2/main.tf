@@ -7,6 +7,6 @@ resource "aws_instance" "web" {
   instance_type = "t4g.medium" #global all working a
 
   tags = {
-    Name = "DemoEC2" #aaded comments
+    Name = "DemoEC2" #aaded comments sss
   }
 }
