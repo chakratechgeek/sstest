@@ -7,33 +7,19 @@ on:
       - develop
 
 jobs:
-  # Temporarily disabled central workflow call
-  # call-central-pr-verification:
-  #   name: Call Central PR Verification
-  #   uses: chakratechgeek/centralspendshield/.github/workflows/pr-verification.yml@main
-  #   secrets: inherit
-  #   permissions:
-  #     contents: read
-  #     pull-requests: read
-  #     actions: read
+  call-central-pr-verification:
+    name: Call Central PR Verification
+    uses: chakratechgeek/centralspendshield/.github/workflows/pr-verification.yml@main
+    with:
+      pr_number: ${{ github.event.pull_request.number }}
+      target_repo_owner: ${{ github.repository_owner }}
+      target_repo_name: ${{ github.event.repository.name }}
+    secrets: inherit
 
   pr-verification-report:
     name: PR Verification
-    # needs: call-central-pr-verification
+    needs: call-central-pr-verification
     runs-on: ubuntu-latest
+    if: always()
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        
-      - name: Basic Terraform validation
-        run: |
-          echo "🔍 Checking Terraform files..."
-          if find . -name "*.tf" -type f | head -1 | grep -q .; then
-            echo "✅ Terraform files found"
-            # You can add terraform fmt -check here later
-          else
-            echo "ℹ️ No Terraform files found"
-          fi
-          
-      - name: Validation complete
-        run: echo "✅ PR validation complete"
+      - run: echo "✅ PR validation complete"
