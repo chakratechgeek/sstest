@@ -18,7 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # needed to diff base vs head
+          fetch-depth: 0
 
       - name: Ensure jq
         run: |
@@ -102,19 +102,19 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$GITHUB_WORKSPACE/outputs"
-          # Sanitize dir name for filename
+          # Sanitize the dir path for filenames
           SANITIZED_DIR="$(echo '${{ matrix.dir }}' | sed 's/[^A-Za-z0-9_.-]/_/g')"
-          # Run python and capture stdout
           python "$GITHUB_WORKSPACE/check.py" plan.json | tee "$GITHUB_WORKSPACE/outputs/${SANITIZED_DIR}.md"
-          # Prepend a header so we know which directory the output belongs to
-          sed -i "1i ## Directory: \`${{ matrix.dir }}\`\n" "$GITHUB_WORKSPACE/outputs/${SANITIZED_DIR}.md"
+          echo "ART_NAME=check-output-${SANITIZED_DIR}" >> "$GITHUB_ENV"
 
-      - name: Upload per-dir output
+      - name: Upload per-dir output (unique name)
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: check-outputs           # same name to aggregate across matrix jobs
+          name: ${{ env.ART_NAME }}        # unique per matrix dir
           path: outputs/*.md
+          if-no-files-found: error
+          retention-days: 7
 
   aggregate-and-comment:
     name: Aggregate outputs & comment on PR
@@ -124,7 +124,9 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: check-outputs
+          # Download all the per-dir artifacts into one folder
+          pattern: check-output-*
+          merge-multiple: true
           path: collected
 
       - name: Build combined comment
@@ -136,6 +138,10 @@ jobs:
           if ls collected/*.md >/dev/null 2>&1; then
             for f in collected/*.md; do
               echo "---" >> combined.md
+              # Derive a readable title from filename if you want:
+              DIR_LABEL="$(basename "$f" .md | sed 's/^check-output-//')"
+              echo "### Directory: \`$DIR_LABEL\`" >> combined.md
+              echo "" >> combined.md
               cat "$f" >> combined.md
               echo "" >> combined.md
             done
