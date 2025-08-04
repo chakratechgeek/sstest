@@ -3,61 +3,56 @@ import sys
 
 def get_changed_fields(before, after, path="", action=None):
     changes = []
-    # Both dicts: recurse common keys
+    
+    # Skip if either is None or empty
+    if before is None or after is None:
+        return changes
+    
+    # Both dicts: only process common keys that exist in both and are not null/empty
     if isinstance(before, dict) and isinstance(after, dict):
         for key in before.keys() & after.keys():
+            before_val = before[key]
+            after_val = after[key]
+            
+            # Skip if either value is None or empty
+            if before_val is None or after_val is None:
+                continue
+            if before_val == "" or after_val == "":
+                continue
+            if before_val == [] or after_val == []:
+                continue
+            if before_val == {} or after_val == {}:
+                continue
+                
             new_path = f"{path}.{key}" if path else key
-            changes += get_changed_fields(before[key], after[key], new_path, action)
-        # Handle new keys (only in after)
-        for key in after.keys() - before.keys():
-            new_path = f"{path}.{key}" if path else key
-            changes.append({
-                "key": new_path,
-                "before": None,
-                "after": after[key],
-                "action": "create"
-            })
-        # Handle removed keys (only in before)
-        for key in before.keys() - after.keys():
-            new_path = f"{path}.{key}" if path else key
-            changes.append({
-                "key": new_path,
-                "before": before[key],
-                "after": None,
-                "action": "delete"
-            })
-    # Both lists: recurse each pair by index
+            changes += get_changed_fields(before_val, after_val, new_path, action)
+            
+    # Both lists: only process if both lists have content
     elif isinstance(before, list) and isinstance(after, list):
+        if len(before) == 0 or len(after) == 0:
+            return changes
+            
         min_len = min(len(before), len(after))
         for i in range(min_len):
-            changes += get_changed_fields(before[i], after[i], f"{path}[{i}]", action)
-        # Handle added list items
-        if len(after) > len(before):
-            for i in range(len(before), len(after)):
-                changes.append({
-                    "key": f"{path}[{i}]",
-                    "before": None,
-                    "after": after[i],
-                    "action": "create"
-                })
-        # Handle removed list items
-        elif len(before) > len(after):
-            for i in range(len(after), len(before)):
-                changes.append({
-                    "key": f"{path}[{i}]",
-                    "before": before[i],
-                    "after": None,
-                    "action": "delete"
-                })
-    # Leaf: values differ
+            before_item = before[i]
+            after_item = after[i]
+            
+            # Skip if either item is None or empty
+            if before_item is None or after_item is None:
+                continue
+                
+            changes += get_changed_fields(before_item, after_item, f"{path}[{i}]", action)
+            
+    # Leaf: values differ and both are not null/empty
     else:
-        if before != after:
-            changes.append({
-                "key": path,
-                "before": before,
-                "after": after,
-                "action": action or "update"
-            })
+        if before != after and before is not None and after is not None:
+            if before != "" and after != "":
+                changes.append({
+                    "key": path,
+                    "before": before,
+                    "after": after,
+                    "action": action or "update"
+                })
     return changes
 
 def format_value(value):
@@ -140,8 +135,8 @@ def highlight_changes(resource_changes):
     for rc in resource_changes:
         actions = rc["change"]["actions"]
         address = rc["address"]
-        before = rc["change"].get("before", {})
-        after = rc["change"].get("after", {})
+        before = rc["change"].get("before")
+        after = rc["change"].get("after")
         
         if actions != ["no-op"]:
             print(f"\nRESOURCE: {address}")
@@ -149,20 +144,27 @@ def highlight_changes(resource_changes):
             print("=" * 50)
             
             # Handle different action types differently
-            if actions == ["create"]:
+            if actions == ["create"] and before is None and after is not None:
                 print("OPERATION: Creating new resource")
-                if after:
-                    show_create_changes_llm(after)
+                show_create_changes_llm(after)
                 
-            elif actions == ["delete"]:
+            elif actions == ["delete"] and before is not None and after is None:
                 print("OPERATION: Deleting existing resource")
-                if before:
-                    show_resource_config_llm(before)
+                show_resource_config_llm(before)
                 
-            elif "update" in actions or "replace" in actions:
+            elif (("update" in actions or "replace" in actions or ("delete" in actions and "create" in actions)) 
+                  and before is not None and after is not None):
                 # For updates/replaces, show actual changes
-                primary_action = "replace" if "replace" in actions else "update"
-                operation = "Replacing resource" if primary_action == "replace" else "Updating resource"
+                if "delete" in actions and "create" in actions:
+                    operation = "Replacing resource (delete + create)"
+                    primary_action = "replace"
+                elif "replace" in actions:
+                    operation = "Replacing resource"
+                    primary_action = "replace"
+                else:
+                    operation = "Updating resource"
+                    primary_action = "update"
+                    
                 print(f"OPERATION: {operation}")
                 
                 diffs = get_changed_fields(before, after, action=primary_action)
@@ -189,6 +191,10 @@ def highlight_changes(resource_changes):
                             print(f"    TO: {after_val}")
                 else:
                     print("CHANGES: No field-level changes detected")
+            else:
+                print(f"OPERATION: Unsupported action combination")
+                print(f"  before_exists: {before is not None}")
+                print(f"  after_exists: {after is not None}")
             
             print("=" * 50)
 
