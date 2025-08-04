@@ -1,0 +1,41 @@
+name: 'Terraform Deploy to AWS INFRA'
+
+on:
+  push:
+    branches: [ main ]
+    paths: [ '**.tf' ]       # Runs only when .tf files change
+ 
+jobs:
+  terraform:
+    name: 'Terraform Plan and Apply'
+    runs-on: ubuntu-latest
+
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
+
+    defaults:
+      run:
+        working-directory: ec2   # Set to your terraform code directory if not repo root
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        run: terraform plan -out=tfplan
+
+      # Only apply if it's a push to main (not a PR)
+      - name: Terraform Apply
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: terraform apply -auto-approve tfplan
