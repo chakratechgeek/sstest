@@ -10,22 +10,22 @@ jobs:
   call-central:
     permissions:
       contents: read
-      pull-requests: write   # needed if using fallback github.token
-      issues: write          # github-script uses Issues API for PR comments
+      pull-requests: write
+      issues: write
     uses: chakratechgeek/centralspendshield/.github/workflows/pr-verification.yml@main
     with:
       pr_number: ${{ github.event.pull_request.number }}
       target_repo_owner: ${{ github.repository_owner }}
       target_repo_name: ${{ github.event.repository.name }}
     secrets:
-      # Supply PAT only if commenting across repos or org policy restricts GITHUB_TOKEN
       PR_COMMENT_TOKEN: ${{ secrets.PR_COMMENT_TOKEN }}
-
-
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
 
   pr-verification-report:
     name: PR Verification Report
-    needs: call-central-pr-verification
+    needs: call-central
     runs-on: ubuntu-latest
     if: always()
     steps:
