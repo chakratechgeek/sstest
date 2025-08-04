@@ -8,17 +8,21 @@ on:
 
 jobs:
   call-central-pr-verification:
+    permissions:
+      contents: read
+      pull-requests: write   # <-- grant what the called workflow needs
+      issues: write          # if you comment via Issues API
     uses: chakratechgeek/centralspendshield/.github/workflows/pr-verification.yml@main
     with:
       pr_number: ${{ github.event.pull_request.number }}
       target_repo_owner: ${{ github.repository_owner }}
       target_repo_name: ${{ github.event.repository.name }}
     secrets:
-      # Prefer a PAT with repo permissions on the source repo for cross-repo comments
       PR_COMMENT_TOKEN: ${{ secrets.PR_COMMENT_TOKEN }}
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
+
 
 
   pr-verification-report:
