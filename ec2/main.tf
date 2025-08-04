@@ -40,9 +40,3 @@ resource "aws_instance" "web" {
     Name = "DemoEC2"
   }
 }
-
-# 6) Elastic IP (public IPv4 is billed hourly whether idle or attached)
-resource "aws_eip" "web_ip" {
-  vpc      = true
-  instance = aws_instance.web.id
-}
